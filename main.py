@@ -17,8 +17,6 @@ from bidi.algorithm import get_display
 # ==========================================
 TARGET_CHANNEL_ID = 1555520611411824711
 
-BG_URL = "https://cdn.discordapp.com/attachments/1339684080224174141/1555517159046774854/IMG_9353.jpg?backend=b2&ex=6ac0cfbe&is=6abf7e3e&hm=83cbeeb7e5efa4d6a1f08261fc9dac3ee2b85dd13fec999470477ea666c12c7c&"
-
 BOT_TOKEN = os.getenv("DISCORD_TOKEN", "ضع_توكن_البوت_هنا_إن_لم_تستخدم_متغيرات_البيئة")
 
 BG_FILE = "background.jpg"
@@ -43,39 +41,38 @@ def keep_alive():
     t.start()
 
 # ==========================================
-# 🛠️ تحميل الملحقات
+# 🛠️ تحميل الملحقات (الخط العربي فقط)
 # ==========================================
 def download_assets():
-    if not os.path.exists(BG_FILE):
-        print("📥 جاري تحميل صورة الخلفية...", flush=True)
-        try:
-            res = requests.get(BG_URL, timeout=15)
-            with open(BG_FILE, "wb") as f:
-                f.write(res.content)
-            print("✅ تم تحميل صورة الخلفية بنجاح.", flush=True)
-        except Exception as e:
-            print(f"❌ خطأ أثناء تحميل الخلفية: {e}", flush=True)
-
     if not os.path.exists(FONT_FILE):
         print("📥 جاري تحميل الخط العربي...", flush=True)
         try:
             font_url = "https://raw.githubusercontent.com/google/fonts/main/ofl/cairo/static/Cairo-Bold.ttf"
             res = requests.get(font_url, timeout=15)
+            res.raise_for_status()
             with open(FONT_FILE, "wb") as f:
                 f.write(res.content)
             print("✅ تم تحميل الخط العربي بنجاح.", flush=True)
         except Exception as e:
             print(f"❌ خطأ أثناء تحميل الخط: {e}", flush=True)
 
+    if not os.path.exists(BG_FILE):
+        print(f"⚠️ تنبيه: ملف الخلفية '{BG_FILE}' غير موجود في المشروع! يرجى رفعه على GitHub.", flush=True)
+
 # ==========================================
 # 🎨 دالة تصميم الصورة
 # ==========================================
 def create_evaluation_card(text: str, username: str, avatar_url: str) -> io.BytesIO:
+    if not os.path.exists(BG_FILE):
+        raise FileNotFoundError(f"ملف الخلفية '{BG_FILE}' غير موجود!")
+
     bg = Image.open(BG_FILE).convert("RGBA")
     draw = ImageDraw.Draw(bg)
 
+    # جلب الأفتار
     try:
         av_res = requests.get(avatar_url, timeout=5)
+        av_res.raise_for_status()
         av_img = Image.open(io.BytesIO(av_res.content)).convert("RGBA")
     except Exception as e:
         print(f"⚠️ تعذر جلب الأفتار: {e}", flush=True)
@@ -91,10 +88,12 @@ def create_evaluation_card(text: str, username: str, avatar_url: str) -> io.Byte
     av_y = 190 + (47 - av_size[1]) // 2
     bg.paste(av_img, (av_x, av_y), mask)
 
+    # رسم يوزر العضو
     user_font = ImageFont.truetype(FONT_FILE, 18)
     reshaped_user = get_display(arabic_reshaper.reshape(f"@{username}"))
     draw.text((av_x - 10, av_y + 19), reshaped_user, fill=(255, 255, 255, 255), font=user_font, anchor="rm")
 
+    # رسم نص التقييم
     text_font = ImageFont.truetype(FONT_FILE, 20)
     reshaped_full_text = arabic_reshaper.reshape(text)
 
@@ -153,7 +152,6 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    # لوق للتأكد من وصول الرسالة للبوت
     print(f"📩 [MESSAGE RECEIVED] في روم ID: {message.channel.id} من: {message.author}", flush=True)
 
     if message.channel.id == TARGET_CHANNEL_ID:
@@ -170,7 +168,7 @@ async def on_message(message):
             await message.delete()
             print("🗑️ تم حذف رسالة العضو الأصلية.", flush=True)
         except Exception as e:
-            print(f"⚠️ تعذر حذف الرسالة (تأكد من صلاحية Manage Messages): {e}", flush=True)
+            print(f"⚠️ تعذر حذف الرسالة: {e}", flush=True)
 
         loop = asyncio.get_running_loop()
         try:
