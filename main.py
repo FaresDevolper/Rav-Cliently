@@ -10,7 +10,6 @@ from discord.ext import commands
 from PIL import Image, ImageDraw, ImageFont
 
 import arabic_reshaper
-from bidi.algorithm import get_display
 
 # ==========================================
 # ⚙️ الإعدادات
@@ -41,23 +40,31 @@ def keep_alive():
     t.start()
 
 # ==========================================
-# 🛠️ تحميل الملحقات (الخط العربي فقط)
+# 🛠️ التأكد من وجود الملحقات
 # ==========================================
-def download_assets():
+def check_assets():
     if not os.path.exists(FONT_FILE):
-        print("📥 جاري تحميل الخط العربي...", flush=True)
-        try:
-            font_url = "https://raw.githubusercontent.com/google/fonts/main/ofl/cairo/static/Cairo-Bold.ttf"
-            res = requests.get(font_url, timeout=15)
-            res.raise_for_status()
-            with open(FONT_FILE, "wb") as f:
-                f.write(res.content)
-            print("✅ تم تحميل الخط العربي بنجاح.", flush=True)
-        except Exception as e:
-            print(f"❌ خطأ أثناء تحميل الخط: {e}", flush=True)
+        print(f"⚠️ تنبيه: ملف الخط '{FONT_FILE}' غير موجود في المشروع!", flush=True)
+    else:
+        print(f"✅ تم العثور على ملف الخط: {FONT_FILE}", flush=True)
 
     if not os.path.exists(BG_FILE):
-        print(f"⚠️ تنبيه: ملف الخلفية '{BG_FILE}' غير موجود في المشروع! يرجى رفعه على GitHub.", flush=True)
+        print(f"⚠️ تنبيه: ملف الخلفية '{BG_FILE}' غير موجود في المشروع!", flush=True)
+    else:
+        print(f"✅ تم العثور على ملف الخلفية: {BG_FILE}", flush=True)
+
+# ==========================================
+# ✍️ دالة معالجة النصوص العربية لـ Pillow
+# ==========================================
+def format_text_for_pil(text: str) -> str:
+    """
+    تشكيل وعكس النص العربي ليتم رسمه من اليمين للجميع بشكل صحيح
+    """
+    has_arabic = any('\u0600' <= c <= '\u06FF' or '\uFE70' <= c <= '\uFEFF' for c in text)
+    if has_arabic:
+        reshaped = arabic_reshaper.reshape(text)
+        return reshaped[::-1]
+    return text
 
 # ==========================================
 # 🎨 دالة تصميم الصورة
@@ -66,10 +73,13 @@ def create_evaluation_card(text: str, username: str, avatar_url: str) -> io.Byte
     if not os.path.exists(BG_FILE):
         raise FileNotFoundError(f"ملف الخلفية '{BG_FILE}' غير موجود!")
 
+    if not os.path.exists(FONT_FILE):
+        raise FileNotFoundError(f"ملف الخط '{FONT_FILE}' غير موجود!")
+
     bg = Image.open(BG_FILE).convert("RGBA")
     draw = ImageDraw.Draw(bg)
 
-    # جلب الأفتار
+    # 1. جلب صورة الأفتار وتشكيلها كدائرة
     try:
         av_res = requests.get(avatar_url, timeout=5)
         av_res.raise_for_status()
@@ -78,33 +88,41 @@ def create_evaluation_card(text: str, username: str, avatar_url: str) -> io.Byte
         print(f"⚠️ تعذر جلب الأفتار: {e}", flush=True)
         av_img = Image.new("RGBA", (100, 100), (120, 120, 120, 255))
 
-    av_size = (38, 38)
+    av_size = (42, 42)
     av_img = av_img.resize(av_size, Image.Resampling.LANCZOS)
+    
     mask = Image.new("L", av_size, 0)
     mask_draw = ImageDraw.Draw(mask)
     mask_draw.ellipse((0, 0, av_size[0], av_size[1]), fill=255)
 
-    av_x = 803 - 6 - av_size[0]
-    av_y = 190 + (47 - av_size[1]) // 2
+    # وضع الأفتار داخل المربع الأسود العلوي
+    av_x = 755
+    av_y = 192
     bg.paste(av_img, (av_x, av_y), mask)
 
-    # رسم يوزر العضو
-    user_font = ImageFont.truetype(FONT_FILE, 18)
-    reshaped_user = get_display(arabic_reshaper.reshape(f"@{username}"))
-    draw.text((av_x - 10, av_y + 19), reshaped_user, fill=(255, 255, 255, 255), font=user_font, anchor="rm")
+    # 2. رسم اسم العضو (اليوزر) باللون الأبيض بجانب الأفتار
+    user_font = ImageFont.truetype(FONT_FILE, 20)
+    formatted_username = format_text_for_pil(username)
+    
+    draw.text(
+        (av_x - 15, av_y + (av_size[1] // 2)),
+        formatted_username,
+        fill=(255, 255, 255, 255),
+        font=user_font,
+        anchor="rm"  # محاذاة يمين النص ليلتصق بجانب الأفتار
+    )
 
-    # رسم نص التقييم
-    text_font = ImageFont.truetype(FONT_FILE, 20)
-    reshaped_full_text = arabic_reshaper.reshape(text)
-
-    words = reshaped_full_text.split(' ')
+    # 3. رسم نص التقييم في المستطيل البيج السفلي بالكامل
+    text_font = ImageFont.truetype(FONT_FILE, 22)
+    
+    words = text.split(' ')
     lines = []
     current_line = []
-    max_width = 620
+    max_width = 650
 
     for word in words:
         test_line = ' '.join(current_line + [word])
-        display_test = get_display(test_line)
+        display_test = format_text_for_pil(test_line)
         bbox = draw.textbbox((0, 0), display_test, font=text_font)
         if bbox[2] - bbox[0] <= max_width:
             current_line.append(word)
@@ -118,15 +136,25 @@ def create_evaluation_card(text: str, username: str, avatar_url: str) -> io.Byte
     if current_line:
         lines.append(' '.join(current_line))
 
-    display_lines = [get_display(line) for line in lines]
+    display_lines = [format_text_for_pil(line) for line in lines]
 
-    line_height = 28
+    line_height = 34
     total_height = len(display_lines) * line_height
-    start_y = 350 - (total_height // 2) + 4
+    
+    # تحديد منتصف المستطيل البيج السفلي
+    center_y = int(bg.height * 0.63) if bg.height > 400 else 470
+    start_y = center_y - (total_height // 2)
+    center_x = bg.width // 2
 
     for i, line in enumerate(display_lines):
         y_pos = start_y + (i * line_height)
-        draw.text((500, y_pos), line, fill=(45, 38, 30, 255), font=text_font, anchor="mm")
+        draw.text(
+            (center_x, y_pos),
+            line,
+            fill=(45, 38, 30, 255),  # لون غامق مناسب للخلفية البيج
+            font=text_font,
+            anchor="mm"  # تمركز أفقي وعمودي في منتصف المستطيل السفلي
+        )
 
     output = io.BytesIO()
     bg.save(output, format="PNG")
@@ -143,7 +171,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
-    download_assets()
+    check_assets()
     print(f"✅ [ON_READY] البوت متصل الآن باسم: {bot.user}", flush=True)
     print(f"🎯 [ON_READY] يراقب الروم ID: {TARGET_CHANNEL_ID}", flush=True)
 
@@ -152,12 +180,8 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    print(f"📩 [MESSAGE RECEIVED] في روم ID: {message.channel.id} من: {message.author}", flush=True)
-
     if message.channel.id == TARGET_CHANNEL_ID:
-        print(f"✨ [MATCH] الرسالة في روم التقييم! المحتوى: '{message.content}'", flush=True)
         if not message.content.strip():
-            print("⚠️ الرسالة فارغة، تم التجاهل.", flush=True)
             return
 
         text_content = message.content
@@ -166,7 +190,6 @@ async def on_message(message):
 
         try:
             await message.delete()
-            print("🗑️ تم حذف رسالة العضو الأصلية.", flush=True)
         except Exception as e:
             print(f"⚠️ تعذر حذف الرسالة: {e}", flush=True)
 
