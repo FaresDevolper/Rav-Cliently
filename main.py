@@ -16,7 +16,7 @@ from bidi.algorithm import get_display
 # ⚙️ الإعدادات التلقائية
 # ==========================================
 # آيدي الروم المخصص للتقييمات
-TARGET_CHANNEL_ID = 1554723158160965642
+TARGET_CHANNEL_ID = 1555520611411824711
 
 # رابط خلفية التقييم
 BG_URL = "https://cdn.discordapp.com/attachments/1339684080224174141/1555517159046774854/IMG_9353.jpg?backend=b2&ex=6ac0cfbe&is=6abf7e3e&hm=83cbeeb7e5efa4d6a1f08261fc9dac3ee2b85dd13fec999470477ea666c12c7c&"
